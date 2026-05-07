@@ -12,6 +12,8 @@ class Settings:
     max_history_messages: int
     obsidian_vault_path: str
     data_dir: str
+    channel_id: int
+    post_interval_days: int
 
 
 def load_settings() -> Settings:
@@ -23,6 +25,8 @@ def load_settings() -> Settings:
     max_history_messages = int(os.getenv("MAX_HISTORY_MESSAGES", "12"))
     obsidian_vault_path = os.getenv("OBSIDIAN_VAULT_PATH", "").strip()
     data_dir = os.getenv("DATA_DIR", "data").strip()
+    channel_id = int(os.getenv("CHANNEL_ID", "-1003520555595"))
+    post_interval_days = int(os.getenv("POST_INTERVAL_DAYS", "3"))
 
     missing = []
     if not telegram_bot_token or telegram_bot_token == "PASTE_TELEGRAM_TOKEN_HERE":
@@ -41,4 +45,6 @@ def load_settings() -> Settings:
         max_history_messages=max_history_messages,
         obsidian_vault_path=obsidian_vault_path,
         data_dir=data_dir,
+        channel_id=channel_id,
+        post_interval_days=post_interval_days,
     )
