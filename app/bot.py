@@ -1,5 +1,8 @@
+import datetime
 import logging
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.jobstores.memory import MemoryJobStore
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.error import TelegramError
@@ -9,7 +12,7 @@ from app.config import load_settings
 from app.memory import ConversationMemory
 from app.obsidian import ObsidianVault
 from app.openai_client import OpenAIResponder
-from app.poster import ChannelPoster
+from app.poster import ChannelPoster, MOSCOW_TZ
 
 
 logging.basicConfig(
@@ -311,20 +314,25 @@ async def _generate_and_schedule_post(
         return
 
     try:
-        poster.schedule_to_channel(post_text, schedule_dt)
-    except Exception:
-        logging.exception("Failed to schedule post to channel")
-        await update.message.reply_text(
-            f"Пост сгенерирован, но не удалось запланировать.\n\n{post_text}",
-            reply_markup=main_keyboard(),
+        scheduler: AsyncIOScheduler = context.application.bot_data["scheduler"]
+        scheduler.add_job(
+            poster.send_to_channel,
+            trigger="date",
+            run_date=schedule_dt,
+            args=[post_text],
+            misfire_grace_time=3600,
         )
+        logging.info("Post scheduled for %s", schedule_dt)
+    except Exception as e:
+        logging.exception("Failed to schedule post")
+        await update.message.reply_text(f"⚠️ Не удалось запланировать: {e}")
         return
 
     label = poster.format_schedule_label(schedule_dt)
     await update.message.reply_text(
         f"✅ Запланировано на *{label}*\n\n"
-        f"Текст поста:\n\n{post_text}\n\n"
-        f"_Найдёшь в отложенных канала — можешь отредактировать или удалить._",
+        f"{post_text}\n\n"
+        f"_Найдёшь в отложенных канала._",
         parse_mode="Markdown",
         reply_markup=main_keyboard(),
     )
@@ -341,11 +349,18 @@ def run_bot() -> None:
     vault = ObsidianVault(settings.obsidian_vault_path)
     poster = ChannelPoster(settings.openai_api_key, settings.openai_model, settings.channel_id, settings.telegram_bot_token, settings.post_interval_days)
 
+    scheduler = AsyncIOScheduler(
+        jobstores={"default": MemoryJobStore()},
+        timezone=MOSCOW_TZ,
+    )
+    scheduler.start()
+
     application = Application.builder().token(settings.telegram_bot_token).build()
     application.bot_data["memory"] = memory
     application.bot_data["responder"] = responder
     application.bot_data["obsidian"] = vault
     application.bot_data["poster"] = poster
+    application.bot_data["scheduler"] = scheduler
     application.bot_data["pending_tasks"] = {}
 
     application.add_handler(CommandHandler("start", start))

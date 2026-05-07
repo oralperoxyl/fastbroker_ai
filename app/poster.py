@@ -1,5 +1,6 @@
 import datetime
 import json
+import logging
 import re
 import urllib.request
 
@@ -124,23 +125,15 @@ class ChannelPoster:
         )
         return resp.output_text.strip()
 
-    def schedule_to_channel(self, text: str, schedule_dt: datetime.datetime) -> dict:
-        timestamp = int(schedule_dt.timestamp())
-        now_ts = int(datetime.datetime.now(MOSCOW_TZ).timestamp())
-        if timestamp <= now_ts + 600:
-            raise ValueError(f"schedule_date слишком близко: {timestamp}, сейчас {now_ts}")
-
+    def send_to_channel(self, text: str) -> dict:
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        payload = json.dumps({
-            "chat_id": self.channel_id,
-            "text": text,
-            "schedule_date": timestamp,
-        }).encode()
+        payload = json.dumps({"chat_id": self.channel_id, "text": text}).encode()
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             result = json.load(resp)
         if not result.get("ok"):
             raise RuntimeError(f"Telegram API error: {result}")
+        logging.info("Post sent to channel: %s", result.get("result", {}).get("message_id"))
         return result
 
     def format_schedule_label(self, dt: datetime.datetime) -> str:
