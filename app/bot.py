@@ -113,7 +113,8 @@ def main_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(TASKS["reply"]["button"], callback_data="task:reply")],
         [InlineKeyboardButton(TASKS["meeting"]["button"], callback_data="task:meeting")],
         [InlineKeyboardButton(TASKS["leadplan"]["button"], callback_data="task:leadplan")],
-        [InlineKeyboardButton("✏️ Пост в канал", callback_data="task:post")],
+        [InlineKeyboardButton("✏️ Пост в канал", callback_data="task:post"),
+         InlineKeyboardButton("📬 Очередь постов", callback_data="task:queue")],
         [InlineKeyboardButton("🗑 Очистить память", callback_data="task:reset")],
     ]
     return InlineKeyboardMarkup(buttons)
@@ -137,6 +138,49 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     query = update.callback_query
     await query.answer()
     data = query.data
+
+    if data.startswith("cancel_post:"):
+        job_id = data.replace("cancel_post:", "")
+        scheduler: AsyncIOScheduler = context.application.bot_data["scheduler"]
+        job = scheduler.get_job(job_id)
+        if job:
+            run_date = job.next_run_time.astimezone(MOSCOW_TZ).strftime("%d.%m в %H:%M")
+            job.remove()
+            await query.edit_message_text(f"✅ Пост на {run_date} отменён.", reply_markup=main_keyboard())
+        else:
+            await query.edit_message_text("Пост уже отправлен или не найден.", reply_markup=main_keyboard())
+        return
+
+    if data == "task:menu":
+        await query.edit_message_text(
+            "Выбери что нужно сделать:",
+            reply_markup=main_keyboard(),
+        )
+        return
+
+    if data == "task:queue":
+        scheduler: AsyncIOScheduler = context.application.bot_data["scheduler"]
+        jobs = scheduler.get_jobs()
+        if not jobs:
+            await query.edit_message_text("Очередь пустая — нет запланированных постов.", reply_markup=main_keyboard())
+            return
+        lines = []
+        buttons = []
+        for job in jobs:
+            if job.next_run_time:
+                label = job.next_run_time.astimezone(MOSCOW_TZ).strftime("%d.%m в %H:%M")
+                preview = str(job.args[0])[:60].replace("\n", " ")
+                if len(str(job.args[0])) > 60:
+                    preview += "..."
+                lines.append(f"📅 *{label}*\n_{preview}_")
+                buttons.append([InlineKeyboardButton(f"❌ Отменить {label}", callback_data=f"cancel_post:{job.id}")])
+        buttons.append([InlineKeyboardButton("« Назад", callback_data="task:menu")])
+        await query.edit_message_text(
+            "Запланированные посты:\n\n" + "\n\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+        return
 
     if data == "task:post":
         pending_tasks = context.application.bot_data["pending_tasks"]
@@ -338,6 +382,30 @@ async def _generate_and_schedule_post(
     )
 
 
+async def queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    scheduler: AsyncIOScheduler = context.application.bot_data["scheduler"]
+    jobs = scheduler.get_jobs()
+
+    if not jobs:
+        await update.message.reply_text("Очередь пустая — нет запланированных постов.", reply_markup=main_keyboard())
+        return
+
+    lines = []
+    buttons = []
+    for job in jobs:
+        run_date = job.next_run_time
+        if run_date:
+            label = run_date.astimezone(MOSCOW_TZ).strftime("%d.%m в %H:%M")
+            # Первые 60 символов текста поста
+            preview = str(job.args[0])[:60].replace("\n", " ") + "..." if len(str(job.args[0])) > 60 else str(job.args[0])
+            lines.append(f"📅 *{label}*\n_{preview}_")
+            buttons.append([InlineKeyboardButton(f"❌ Отменить {label}", callback_data=f"cancel_post:{job.id}")])
+
+    buttons.append([InlineKeyboardButton("« Назад", callback_data="task:menu")])
+    text = "Запланированные посты:\n\n" + "\n\n".join(lines)
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.exception("Unhandled bot error", exc_info=context.error)
 
@@ -367,6 +435,7 @@ def run_bot() -> None:
     application.add_handler(CommandHandler("reset", reset))
     application.add_handler(CommandHandler("menu", start))
     application.add_handler(CommandHandler("post", post_command))
+    application.add_handler(CommandHandler("queue", queue_command))
     for command in TASKS:
         application.add_handler(CommandHandler(command, task_command))
     application.add_handler(CallbackQueryHandler(handle_callback, pattern="^task:"))
