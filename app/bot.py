@@ -1,9 +1,9 @@
 import logging
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.error import TelegramError
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from app.config import load_settings
 from app.memory import ConversationMemory
@@ -20,7 +20,8 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 TASKS = {
     "analyze": {
-        "title": "анализ объявления",
+        "title": "Анализ объявления",
+        "button": "🔍 Анализ объявления",
         "prompt": (
             "Ты AI-ассистент брокера по недвижимости. Проанализируй объявление или описание объекта. "
             "Верни структурированный ответ: 1) кратко объект, 2) вероятный тип продавца, "
@@ -30,15 +31,17 @@ TASKS = {
         ),
     },
     "reply": {
-        "title": "ответ продавцу",
+        "title": "Ответ продавцу",
+        "button": "✍️ Ответить продавцу",
         "prompt": (
             "Ты помогаешь брокеру ответить продавцу в переписке. Сформулируй 2-3 варианта ответа: "
-            "мягкий, более деловой и ведущий к встрече. Не дави, не звучать как массовая рассылка. "
+            "мягкий, более деловой и ведущий к встрече. Не дави, не звучи как массовая рассылка. "
             "Цель: продолжить диалог, выявить мотивацию и приблизить встречу."
         ),
     },
     "meeting": {
-        "title": "подвод к встрече",
+        "title": "Подвод к встрече",
+        "button": "🤝 Назначить встречу",
         "prompt": (
             "Ты помогаешь брокеру назначить встречу с продавцом. Проанализируй контекст переписки "
             "и дай: 1) лучший следующий ход, 2) точный текст сообщения, 3) запасной вариант, "
@@ -46,7 +49,8 @@ TASKS = {
         ),
     },
     "leadplan": {
-        "title": "план по лиду",
+        "title": "План по лиду",
+        "button": "📋 План по лиду",
         "prompt": (
             "Ты sales-стратег брокера по недвижимости. На основе лида дай рабочий план: "
             "1) статус лида, 2) шанс на встречу, 3) ключевой рычаг мотивации, "
@@ -56,22 +60,52 @@ TASKS = {
 }
 
 
+def main_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(TASKS["analyze"]["button"], callback_data="task:analyze")],
+        [InlineKeyboardButton(TASKS["reply"]["button"], callback_data="task:reply")],
+        [InlineKeyboardButton(TASKS["meeting"]["button"], callback_data="task:meeting")],
+        [InlineKeyboardButton(TASKS["leadplan"]["button"], callback_data="task:leadplan")],
+        [InlineKeyboardButton("🗑 Очистить память", callback_data="task:reset")],
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "Готов. Я AI-ассистент по недвижимости.\n\n"
-        "/analyze — анализ объявления\n"
-        "/reply — помочь ответить продавцу\n"
-        "/meeting — подвести к встрече\n"
-        "/leadplan — план по лиду\n"
-        "/obsidian — проверить заметки\n"
-        "/reset — очистить память"
+        "Привет! Я AI-ассистент брокера по недвижимости.\n\n"
+        "Выбери что нужно сделать — или просто напиши мне сообщение:",
+        reply_markup=main_keyboard(),
     )
 
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     memory: ConversationMemory = context.application.bot_data["memory"]
     memory.clear(update.effective_chat.id)
-    await update.message.reply_text("Память этого диалога очищена.")
+    await update.message.reply_text("Память очищена.", reply_markup=main_keyboard())
+
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data == "task:reset":
+        memory: ConversationMemory = context.application.bot_data["memory"]
+        memory.clear(update.effective_chat.id)
+        await query.edit_message_text("Память очищена.", reply_markup=main_keyboard())
+        return
+
+    task_name = data.replace("task:", "")
+    if task_name not in TASKS:
+        return
+
+    pending_tasks = context.application.bot_data["pending_tasks"]
+    pending_tasks[update.effective_chat.id] = task_name
+    await query.edit_message_text(
+        f"Режим: *{TASKS[task_name]['title']}*\n\nПришли текст объявления, переписку или описание лида — и я разберу.",
+        parse_mode="Markdown",
+    )
 
 
 async def obsidian_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -135,7 +169,7 @@ async def run_task(
 
     memory.add(chat_id, "user", f"/{task_name}\n{user_text}")
     memory.add(chat_id, "assistant", answer)
-    await update.message.reply_text(answer)
+    await update.message.reply_text(answer, reply_markup=main_keyboard())
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -171,7 +205,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     memory.add(chat_id, "user", user_text)
     memory.add(chat_id, "assistant", answer)
-    await update.message.reply_text(answer)
+    await update.message.reply_text(answer, reply_markup=main_keyboard())
 
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -192,9 +226,11 @@ def run_bot() -> None:
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("reset", reset))
+    application.add_handler(CommandHandler("menu", start))
     application.add_handler(CommandHandler("obsidian", obsidian_status))
     for command in TASKS:
         application.add_handler(CommandHandler(command, task_command))
+    application.add_handler(CallbackQueryHandler(handle_callback, pattern="^task:"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     application.add_error_handler(handle_error)
 
