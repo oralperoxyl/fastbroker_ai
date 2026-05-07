@@ -248,7 +248,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     memory.add(chat_id, "user", user_text)
     memory.add(chat_id, "assistant", answer)
-    await update.message.reply_text(answer, reply_markup=main_keyboard())
+    await update.message.reply_text(answer)
 
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
