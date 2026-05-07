@@ -92,7 +92,15 @@ class ChannelPoster:
         now = datetime.datetime.now(MOSCOW_TZ)
         base = last_scheduled if last_scheduled and last_scheduled > now else now
         result = base + datetime.timedelta(days=self.interval_days)
-        return result.replace(hour=10, minute=0, second=0, microsecond=0)
+        result = datetime.datetime(
+            result.year, result.month, result.day,
+            10, 0, 0, tzinfo=MOSCOW_TZ
+        )
+        # Минимум 15 минут от текущего момента
+        min_time = now + datetime.timedelta(minutes=15)
+        if result < min_time:
+            result = min_time + datetime.timedelta(hours=1)
+        return result
 
     def extract_topic(self, user_text: str) -> str:
         # Убираем временные маркеры из темы
