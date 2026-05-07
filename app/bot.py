@@ -320,11 +320,7 @@ async def _generate_and_schedule_post(
         return
 
     try:
-        await context.bot.send_message(
-            chat_id=poster.channel_id,
-            text=post_text,
-            schedule_date=schedule_dt,
-        )
+        poster.schedule_to_channel(post_text, schedule_dt)
     except Exception:
         logging.exception("Failed to schedule post to channel")
         await update.message.reply_text(
@@ -352,7 +348,7 @@ def run_bot() -> None:
     memory = ConversationMemory(f"{settings.data_dir}/memory.json", settings.max_history_messages)
     responder = OpenAIResponder(settings.openai_api_key, settings.openai_model)
     vault = ObsidianVault(settings.obsidian_vault_path)
-    poster = ChannelPoster(settings.openai_api_key, settings.openai_model, settings.channel_id, settings.post_interval_days)
+    poster = ChannelPoster(settings.openai_api_key, settings.openai_model, settings.channel_id, settings.telegram_bot_token, settings.post_interval_days)
 
     application = Application.builder().token(settings.telegram_bot_token).build()
     application.bot_data["memory"] = memory

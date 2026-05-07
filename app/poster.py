@@ -1,6 +1,8 @@
 import datetime
 import json
 import re
+import urllib.parse
+import urllib.request
 from zoneinfo import ZoneInfo
 
 from openai import AsyncOpenAI
@@ -52,10 +54,11 @@ POST_GEN_PROMPT = """Напиши пост для канала на тему: {t
 
 
 class ChannelPoster:
-    def __init__(self, api_key: str, model: str, channel_id: int, interval_days: int = 3) -> None:
+    def __init__(self, api_key: str, model: str, channel_id: int, bot_token: str, interval_days: int = 3) -> None:
         self.client = AsyncOpenAI(api_key=api_key)
         self.model = model
         self.channel_id = channel_id
+        self.bot_token = bot_token
         self.interval_days = interval_days
 
     async def parse_schedule_time(self, user_text: str) -> datetime.datetime | None:
@@ -109,6 +112,18 @@ class ChannelPoster:
             }],
         )
         return resp.output_text.strip()
+
+    def schedule_to_channel(self, text: str, schedule_dt: datetime.datetime) -> dict:
+        timestamp = int(schedule_dt.timestamp())
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+        payload = json.dumps({
+            "chat_id": self.channel_id,
+            "text": text,
+            "schedule_date": timestamp,
+        }).encode()
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.load(resp)
 
     def format_schedule_label(self, dt: datetime.datetime) -> str:
         days = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
