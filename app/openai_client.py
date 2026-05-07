@@ -111,7 +111,7 @@ class OpenAIResponder:
             input_messages.append(
                 {
                     "role": "system",
-                    "content": "Relevant Obsidian notes:\n\n" + obsidian_context,
+                    "content": "Заметки из базы знаний:\n\n" + obsidian_context,
                 }
             )
         input_messages.extend(history)

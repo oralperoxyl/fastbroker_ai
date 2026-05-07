@@ -1,13 +1,12 @@
 import datetime
 import json
 import re
-import urllib.parse
 import urllib.request
-from zoneinfo import ZoneInfo
 
 from openai import AsyncOpenAI
 
-MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+# Москва UTC+3, без перехода на летнее время с 2014 года
+MOSCOW_TZ = datetime.timezone(datetime.timedelta(hours=3))
 
 CHANNEL_STYLE_PROMPT = """Ты пишешь пост для Telegram-канала "между показами".
 
@@ -103,10 +102,14 @@ class ChannelPoster:
         return result
 
     def extract_topic(self, user_text: str) -> str:
-        # Убираем временные маркеры из темы
+        # Убираем временные маркеры — только конкретные паттерны, не общее "в ..."
         cleaned = re.sub(
-            r'(завтра|послезавтра|через\s+\d+\s+дн\w+|в\s+\w+|'
-            r'\d{1,2}:\d{2}|\d{4}-\d{2}-\d{2})\s*[|,]?\s*',
+            r'(завтра|послезавтра|через\s+\d+\s+дн\w+'
+            r'|в\s+(?:понедельник|вторник|среду|четверг|пятницу|субботу|воскресенье)'
+            r'(?:\s+(?:утром|днём|вечером|ночью))?'
+            r'|\d{1,2}:\d{2}'
+            r'|\d{4}-\d{2}-\d{2})'
+            r'\s*[|,]?\s*',
             '', user_text, flags=re.IGNORECASE
         ).strip()
         return cleaned or user_text
@@ -123,6 +126,10 @@ class ChannelPoster:
 
     def schedule_to_channel(self, text: str, schedule_dt: datetime.datetime) -> dict:
         timestamp = int(schedule_dt.timestamp())
+        now_ts = int(datetime.datetime.now(MOSCOW_TZ).timestamp())
+        if timestamp <= now_ts + 600:
+            raise ValueError(f"schedule_date слишком близко: {timestamp}, сейчас {now_ts}")
+
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         payload = json.dumps({
             "chat_id": self.channel_id,
@@ -131,7 +138,10 @@ class ChannelPoster:
         }).encode()
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.load(resp)
+            result = json.load(resp)
+        if not result.get("ok"):
+            raise RuntimeError(f"Telegram API error: {result}")
+        return result
 
     def format_schedule_label(self, dt: datetime.datetime) -> str:
         days = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]

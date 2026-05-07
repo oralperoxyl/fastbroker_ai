@@ -168,15 +168,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
 
-async def obsidian_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    vault: ObsidianVault = context.application.bot_data["obsidian"]
-    if not vault.is_enabled():
-        await update.message.reply_text("Obsidian не подключен или папка не найдена.")
-        return
-
-    note_count = len(list(vault.vault_path.rglob("*.md")))
-    await update.message.reply_text(f"Obsidian подключен. Найдено заметок: {note_count}.")
-
 
 async def task_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
