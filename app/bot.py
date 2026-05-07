@@ -438,7 +438,7 @@ def run_bot() -> None:
     application.add_handler(CommandHandler("queue", queue_command))
     for command in TASKS:
         application.add_handler(CommandHandler(command, task_command))
-    application.add_handler(CallbackQueryHandler(handle_callback, pattern="^task:"))
+    application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     application.add_error_handler(handle_error)
 
