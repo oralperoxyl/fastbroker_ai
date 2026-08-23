@@ -22,6 +22,19 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
+def _is_owner(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    owner_id = context.application.bot_data.get("owner_chat_id", 0)
+    user = update.effective_user
+    return bool(user and owner_id and user.id == owner_id)
+
+
+async def _deny(update: Update) -> None:
+    if update.callback_query:
+        await update.callback_query.answer("Доступ запрещён", show_alert=True)
+    elif update.message:
+        await update.message.reply_text("🚫 Это личный бот. Доступ запрещён.")
+
+
 TASKS = {
     "seller": {
         "title": "Новый продавец",
@@ -121,6 +134,8 @@ def main_keyboard() -> InlineKeyboardMarkup:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update, context):
+        return await _deny(update)
     await update.message.reply_text(
         "Привет! Я AI-ассистент брокера по недвижимости.\n\n"
         "Выбери что нужно сделать — или просто напиши мне сообщение:",
@@ -129,12 +144,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update, context):
+        return await _deny(update)
     memory: ConversationMemory = context.application.bot_data["memory"]
     memory.clear(update.effective_chat.id)
     await update.message.reply_text("Память очищена.", reply_markup=main_keyboard())
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update, context):
+        return await _deny(update)
     query = update.callback_query
     await query.answer()
     data = query.data
@@ -219,6 +238,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def task_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
+    if not _is_owner(update, context):
+        return await _deny(update)
 
     command = update.message.text.split(maxsplit=1)[0].lstrip("/").split("@")[0]
     text = update.message.text.split(maxsplit=1)[1].strip() if len(update.message.text.split(maxsplit=1)) > 1 else ""
@@ -273,6 +294,8 @@ async def run_task(
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.message.text:
         return
+    if not _is_owner(update, context):
+        return await _deny(update)
 
     chat_id = update.effective_chat.id
     user_text = update.message.text.strip()
@@ -312,6 +335,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def post_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
+    if not _is_owner(update, context):
+        return await _deny(update)
 
     text = update.message.text.split(maxsplit=1)
     user_input = text[1].strip() if len(text) > 1 else ""
@@ -383,6 +408,8 @@ async def _generate_and_schedule_post(
 
 
 async def queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update, context):
+        return await _deny(update)
     scheduler: AsyncIOScheduler = context.application.bot_data["scheduler"]
     jobs = scheduler.get_jobs()
 
@@ -430,6 +457,7 @@ def run_bot() -> None:
     application.bot_data["poster"] = poster
     application.bot_data["scheduler"] = scheduler
     application.bot_data["pending_tasks"] = {}
+    application.bot_data["owner_chat_id"] = settings.owner_chat_id
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("reset", reset))

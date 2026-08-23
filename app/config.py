@@ -14,6 +14,7 @@ class Settings:
     data_dir: str
     channel_id: int
     post_interval_days: int
+    owner_chat_id: int
 
 
 def load_settings() -> Settings:
@@ -27,12 +28,15 @@ def load_settings() -> Settings:
     data_dir = os.getenv("DATA_DIR", "data").strip()
     channel_id = int(os.getenv("CHANNEL_ID", "-1003520555595"))
     post_interval_days = int(os.getenv("POST_INTERVAL_DAYS", "3"))
+    owner_chat_id = int(os.getenv("OWNER_CHAT_ID", "0"))
 
     missing = []
     if not telegram_bot_token or telegram_bot_token == "PASTE_TELEGRAM_TOKEN_HERE":
         missing.append("TELEGRAM_BOT_TOKEN")
     if not openai_api_key or openai_api_key == "PASTE_OPENAI_API_KEY_HERE":
         missing.append("OPENAI_API_KEY")
+    if not owner_chat_id:
+        missing.append("OWNER_CHAT_ID")
 
     if missing:
         names = ", ".join(missing)
@@ -47,4 +51,5 @@ def load_settings() -> Settings:
         data_dir=data_dir,
         channel_id=channel_id,
         post_interval_days=post_interval_days,
+        owner_chat_id=owner_chat_id,
     )
